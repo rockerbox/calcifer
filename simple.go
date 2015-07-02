@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"flag"
 	"io/ioutil"
+	"sync"
 )
 
 type HostMap struct {
@@ -18,8 +19,26 @@ type HostMap struct {
 	SRV string
 }
 type Config struct {
+	mutex sync.RWMutex
 	Hosts []HostMap
 }
+
+func (config *Config) UpdateHost(host HostMap) {
+	config.mutex.Lock()
+	shouldAppend := true
+	for _, h := range config.Hosts {
+		if (host.External == h.External) {
+			h.SRV = host.SRV	
+			shouldAppend = false
+		}
+	}
+
+	if (shouldAppend) {
+		config.Hosts = append(config.Hosts,host)
+	}
+	config.mutex.Unlock()
+}
+
 var config Config
 
 func load(config Config, lookup map[string]string) {
@@ -29,9 +48,14 @@ func load(config Config, lookup map[string]string) {
         }
 }
 
+
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
 	configjson := flag.String("c", "config.json", "Path to config. (default config.json)")
+        port := flag.String("p","8080","port to run on")
+
+	flag.Parse()
+
 	file, err := ioutil.ReadFile(*configjson)
 	err = json.Unmarshal(file, &config)
 	log.Println(config, err)
@@ -59,13 +83,13 @@ func main() {
 			case "/hosts": 
 				resp, _ := json.Marshal(config.Hosts)
 				fmt.Fprintf(w,string(resp))
-			case "/add_host":
+			case "/host":
 				defer req.Body.Close()
 				body, err := ioutil.ReadAll(req.Body)
 				if err == nil && len(body) > 0 {
 					var h HostMap
 					json.Unmarshal(body,&h)
-					config.Hosts = append(config.Hosts,h)
+					config.UpdateHost(h)
 					resp, _ := json.Marshal(config.Hosts)
 					load(config, lookup)
 					fmt.Fprintf(w,string(resp))
@@ -78,7 +102,7 @@ func main() {
 	})
 
 	s := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + *port,
 		Handler: redirect,
 	}
 	s.ListenAndServe()
