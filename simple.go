@@ -86,15 +86,14 @@ func main() {
                 	data, found := c.Get(srvq)
                 	if !found {
 				hosts, _, _ := DNSSRV(srvq)	
+				log.Println("Looked up host:",srvq,hosts[0])
 				c.Set(srvq,hosts[0])
 				data = hosts[0]
 			}
 			if tokenListContainsValue(req.Header, "Connection", "upgrade") {
-				if tokenListContainsValue(req.Header, "Upgrade", "websocket") {
-					swsurl := "ws://" + data + req.URL.Path + "?" + req.URL.RawQuery 
-					wsurl, _ := url.Parse(swsurl)
-					websocketproxy.NewProxy(wsurl).ServeHTTP(w,req)
-				}
+				swsurl := "ws://" + data + req.URL.Path + "?" + req.URL.RawQuery 
+				wsurl, _ := url.Parse(swsurl)
+				websocketproxy.NewProxy(wsurl).ServeHTTP(w,req)
 			} else {
 				req.URL = testutils.ParseURI("http://" + data)
 				fwd.ServeHTTP(w, req)
