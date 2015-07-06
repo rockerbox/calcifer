@@ -7,11 +7,14 @@ import (
 	"github.com/mailgun/oxy/testutils"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 	"encoding/json"
 	"flag"
 	"io/ioutil"
 	"sync"
+        "github.com/rockerbox/websocketproxy"
+	"strings"
 )
 
 type HostMap struct {
@@ -48,6 +51,16 @@ func load(config Config, lookup map[string]string) {
         }
 }
 
+func tokenListContainsValue(header http.Header, name string, value string) bool {
+	for _, v := range header[name] {
+		for _, s := range strings.Split(v, ",") {
+			if strings.EqualFold(value, strings.TrimSpace(s)) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 2)
@@ -63,7 +76,7 @@ func main() {
 	fwd, _ := forward.New()
         c := NewCache(time.Duration(5)*time.Second) 
 
-	lookup := make(map[string]string, len(config.Hosts) -1)
+	lookup := make(map[string]string, len(config.Hosts) +30)
 	load(config,lookup)
 	
 
@@ -76,8 +89,16 @@ func main() {
 				c.Set(srvq,hosts[0])
 				data = hosts[0]
 			}
-			req.URL = testutils.ParseURI("http://" + data)
-			fwd.ServeHTTP(w, req)
+			if tokenListContainsValue(req.Header, "Connection", "upgrade") {
+				if tokenListContainsValue(req.Header, "Upgrade", "websocket") {
+					swsurl := "ws://" + data + req.URL.Path + "?" + req.URL.RawQuery 
+					wsurl, _ := url.Parse(swsurl)
+					websocketproxy.NewProxy(wsurl).ServeHTTP(w,req)
+				}
+			} else {
+				req.URL = testutils.ParseURI("http://" + data)
+				fwd.ServeHTTP(w, req)
+			}
 		} else {
 			switch req.URL.Path {
 			case "/hosts": 
